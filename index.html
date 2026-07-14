@@ -288,7 +288,7 @@
     let isCoupled = false;
     let isPrompting = false; 
 
-    // --- ZWEI-WEGE-KOPPLUNG (Überwacht Wand-Kollision & Band-Durchstoßung) ---
+  // --- ZWEI-WEGE-KOPPLUNG (Überwacht Wand-Kollision & Band-Durchstoßung) ---
     function enforceConstraints(source) {
         if (isPrompting) return; 
 
@@ -300,21 +300,26 @@
         if (alpha < 0.01) return;
 
         // Mathematische Limits berechnen
+        // 1. Die Tangentenpunkte dürfen nicht außerhalb der Seitenwände liegen
         let r_max_wall = (bs_val / 2) / Math.sin(alpha);
-        let r_max_height = H_ges / 2; // Unterkante des Kreises darf nicht unter Gurtboden sinken
+        
+        // 2. Die Tangentenpunkte (Beginn der Rundung) dürfen nicht unter den Gurtboden fallen.
+        // Der vertikale Drop von der Kuppe bis zum Tangentenpunkt ist exakt r * (1 - cos(alpha)).
+        let r_max_height = H_ges / (1 - Math.cos(alpha)); 
+        
         let r_max = Math.min(r_max_wall, r_max_height);
 
         let bs_min = 2 * r_val * Math.sin(alpha);
-        let H_min = 2 * r_val;
+        let H_min = r_val * (1 - Math.cos(alpha));
 
-        if (r_val > r_max) {
+        // +1mm Toleranz gegen Float-Jitter
+        if (r_val > r_max + 1) {
             if (!isCoupled) {
                 isPrompting = true;
                 
-                // Text dynamisch je nach geometrischer Ursache anpassen
                 let msg = "";
                 if (r_max_height < r_max_wall) {
-                    msg = "Die Abrundung der Kegelspitze ist zu groß für die aktuelle Schütthöhe (die Rundung würde das Band nach unten durchstoßen).";
+                    msg = "Die Abrundung der Kegelspitze ist zu groß für die aktuelle Schütthöhe (die Tangenten der Rundung würden das Band nach unten durchstoßen).";
                 } else {
                     msg = "Die Abrundung der Kegelspitze ist zu groß für den aktuellen Abstand der Seitenwände (die Rundung würde aus den Wänden ragen).";
                 }
@@ -322,7 +327,6 @@
                 document.getElementById('conflictModal').querySelector('p').innerHTML = msg + "<br><br>Möchtest du die <strong>dynamische Kopplung</strong> aktivieren? Die abhängige Größe weicht dann ab sofort automatisch aus.";
                 document.getElementById('conflictModal').style.display = 'flex';
                 
-                // OK-Klick: Kopplung aktivieren und Werte anpassen
                 document.getElementById('btnConflictOk').onclick = function() {
                     isCoupled = true;
                     document.getElementById('conflictModal').style.display = 'none';
@@ -339,11 +343,11 @@
                     updateDisplayAndDraw();
                 };
                 
-                // Abbrechen-Klick: Aktion verwerfen mit sicherem 10 mm Abstand zur kritischen Kante
                 document.getElementById('btnConflictCancel').onclick = function() {
                     document.getElementById('conflictModal').style.display = 'none';
                     isPrompting = false;
                     
+                    // Revertieren der Aktion mit 10mm Sicherheitspuffer
                     if (source === 'radius' || source === 'angle') {
                         UI.tipRadius.value = Math.max(0, Math.floor(r_max) - 10);
                     } else if (source === 'wall') {
@@ -440,6 +444,7 @@
         
         // Letzte Absicherung beim Rendern: r_eff darf nicht größer als die absolute Geometrie-Grenze sein
         let r_max_geo = (b_s / 2) / Math.sin(alpha);
+        let r_max_geo = Math.min((b_s / 2) / Math.sin(alpha), H_ges / (1 - Math.cos(alpha)));
         let r_eff = Math.min(tip_r, r_max_geo);
         
         let tip_y_drop = r_eff > 0 ? (r_eff / Math.cos(alpha) - r_eff) : 0;
