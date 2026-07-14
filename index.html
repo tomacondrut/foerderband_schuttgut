@@ -48,7 +48,6 @@
         button.dxf-btn { background: var(--accent); margin-right: 10px; }
         button.dxf-btn:hover { background: #d35400; }
         
-        /* Fix gegen horizontales Stauchen */
         canvas { border: 1px solid #ddd; border-radius: 4px; width: 100%; height: auto; background: #fff; cursor: crosshair; display: block; }
         
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 1000; justify-content: center; align-items: center; }
@@ -76,7 +75,7 @@
     <div class="header">
         <div class="header-text">
             <h2>Fördervolumen & Massenstrom</h2>
-            <p>Konstruktiver V-Gurt-Querschnitt (Exakte CAD-Kinematik & DXF-Schnittstelle)</p>
+            <p>Konstruktiver V-Gurt-Querschnitt (Exakte CAD-Kinematik & Dynamische Kopplung)</p>
         </div>
         <div style="display: flex; gap: 10px; align-items: center;">
             <label class="toggle-container">
@@ -127,8 +126,8 @@
         <div class="section-title">Schüttgut & Seitenwände</div>
 
         <div class="control-group full-width" style="border-left: 4px solid #8e44ad;">
-            <label>Lichter Abstand Seitenwände ($b_s$): <span id="valSideWallDist" class="val-display" style="color: #8e44ad;">1200 mm</span></label>
-            <input type="range" id="sideWallDist" min="300" max="1400" value="1200" step="10">
+            <label>Lichter Abstand Seitenwände ($b_s$): <span id="valSideWallDist" class="val-display" style="color: #8e44ad;">800 mm</span></label>
+            <input type="range" id="sideWallDist" min="300" max="1400" value="800" step="10">
         </div>
 
         <div class="control-group full-width" style="border-left: 4px solid var(--primary); background: #eafaf1;">
@@ -179,7 +178,7 @@
 <div id="infoModal" class="modal">
     <div class="modal-content">
         <h3>ℹ️ Geometrische Flächenaufteilung (Exaktes ISO-Integral)</h3>
-        <p>Die Schüttgut-Querschnittsfläche wird zur präzisen Berechnung in symmetrische Zonen unterteilt. Das mathematische Modell nutzt nun die echte Kreisflächen-Integration der Stammfunktion, wodurch numerische Abweichungen ausgeschlossen sind und das Resultat 1:1 mit CAD-Extrusionen (Inventor) übereinstimmt.</p>
+        <p>Die Schüttgut-Querschnittsfläche wird zur präzisen Berechnung in symmetrische Zonen unterteilt. Das mathematische Modell nutzt nun die echte Kreisflächen-Integration der Stammfunktion, wodurch numerische Abweichungen ausgeschlossen sind und das Resultat 1:1 mit CAD-Extrusionen übereinstimmt.</p>
 
         <h4>1. Muldendreieck inkl. Gurt-Kreisbogen ($A_{Mulde}$)</h4>
         <p>Die Fläche unterhalb des Wandkontakts ($y_{edge}$) abzüglich der Gurtfläche. Die Gurt-Krümmung wird als exaktes Kreissegment abgezogen:</p>
@@ -213,6 +212,7 @@
 <script>
     // Globale Geometriedaten für DXF Export
     let DXF_DATA = {};
+    let isCoupled = false; // State-Variable für die Zwei-Wege-Kopplung
 
     const UI = {
         beltWidth: document.getElementById('beltWidth'),
@@ -245,9 +245,15 @@
             updateDisplayAndDraw();
         });
 
+        // Event-Listener mit eingebautem Geometrie-Wächter (Coupling)
         Object.keys(UI).forEach(key => {
             if(UI[key] && (UI[key].tagName === 'INPUT' || UI[key].tagName === 'SELECT')) {
-                UI[key].addEventListener('input', updateDisplayAndDraw);
+                UI[key].addEventListener('input', (e) => {
+                    if (key === 'tipRadius') enforceConstraints('radius');
+                    if (key === 'sideWallDist') enforceConstraints('wall');
+                    if (key === 'reposeAngle') enforceConstraints('angle');
+                    updateDisplayAndDraw();
+                });
             }
         });
 
@@ -255,11 +261,50 @@
         document.getElementById('btnCloseInfo').addEventListener('click', () => document.getElementById('infoModal').style.display = 'none');
         document.getElementById('btnExportDXF').addEventListener('click', exportToDXF);
 
-        // Resize Event für proportionalen Canvas
         window.addEventListener('resize', updateDisplayAndDraw);
 
         updateDisplayAndDraw();
     };
+
+    // --- ZWEI-WEGE-KOPPLUNG (Verhindert das "Rauspieksen" der Kuppe) ---
+    function enforceConstraints(source) {
+        let r_val = parseFloat(UI.tipRadius.value);
+        let bs_val = parseFloat(UI.sideWallDist.value);
+        let alpha = parseFloat(UI.reposeAngle.value) * Math.PI / 180;
+
+        if (alpha < 0.01) return;
+
+        // Mathematisches Limit: Der Radius darf maximal so groß sein, dass der Tangentenpunkt 
+        // exakt an der Seitenwand liegt (r * sin(alpha) <= b_s / 2).
+        let r_max = (bs_val / 2) / Math.sin(alpha);
+        let bs_min = 2 * r_val * Math.sin(alpha);
+
+        // Toleranz +1mm gegen Float-Jitter
+        if (r_val > r_max + 1) {
+            if (!isCoupled) {
+                // Popup werfen und den Drag stoppen
+                let userAgrees = confirm("Geometrie-Konflikt: Die Abrundung der Kegelspitze ist zu groß für den aktuellen Abstand der Seitenwände (die Rundung würde aus den Wänden ragen).\n\nMöchtest du die dynamische Kopplung aktivieren? Die abhängige Größe wird dann automatisch mitverschoben.");
+                
+                if (userAgrees) {
+                    isCoupled = true;
+                } else {
+                    // Revertieren der verursachenden Aktion
+                    if (source === 'radius' || source === 'angle') UI.tipRadius.value = Math.floor(r_max);
+                    if (source === 'wall') UI.sideWallDist.value = Math.ceil(bs_min);
+                    return;
+                }
+            }
+
+            // Wenn freigeschalten: Slider gegenseitig ziehen
+            if (isCoupled) {
+                if (source === 'radius' || source === 'angle') {
+                    UI.sideWallDist.value = Math.ceil(bs_min);
+                } else if (source === 'wall') {
+                    UI.tipRadius.value = Math.floor(r_max);
+                }
+            }
+        }
+    }
 
     function updateDisplayAndDraw() {
         const W_belt = parseInt(UI.beltWidth.value);
@@ -329,11 +374,13 @@
         const x_sw = b_s / 2;
         const y_tip = Y_belt_min + H_ges; 
         
-        let r_eff = Math.min(tip_r, H_ges * 0.95); // Leichtes Limit für den Radius
+        // Letzte Absicherung beim Rendern: r_eff darf nicht größer als die absolute Geometrie-Grenze sein
+        let r_max_geo = (b_s / 2) / Math.sin(alpha);
+        let r_eff = Math.min(tip_r, r_max_geo);
+        
         let tip_y_drop = r_eff > 0 ? (r_eff / Math.cos(alpha) - r_eff) : 0;
         let y_th_tip = y_tip + tip_y_drop;
         
-        // Iterative Schnittpunktsuche
         let x_low = 0, x_high = W_belt;
         for(let i=0; i<40; i++) {
             let mid = (x_low + x_high)/2;
@@ -364,7 +411,6 @@
         if (is_flat) {
             A_mulde = x_mat * (y_edge - Y_belt_min);
         } else if (x_mat > x_tan) {
-            // Stammfunktion Integration für perfekten Inventor Match
             let Area_rect = x_mat * y_edge;
             let Area_arc_under = x_tan * y_c - 0.5 * R_top * R_top * (Math.sin(beta) * Math.cos(beta) + beta);
             let Area_triangle = 0.5 * (x_mat - x_tan) * (y_tan + y_edge);
@@ -420,7 +466,6 @@
         x_mat, y_edge, y_wall_top, y_tip, y_th_tip, r_eff, alpha, h_w_rect, is_detached,
         P_r_in, dir, normal, P_belt_tan, P_inner_top_R, x_tan, y_tan
     ) {
-        // Set Canvas Physical Size for Sharp Rendering
         const rect = canvas.getBoundingClientRect();
         canvas.width = rect.width;
         canvas.height = rect.height;
@@ -428,7 +473,6 @@
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.save();
         
-        // Dynamische Skalierung für jedes Browser-Fenster
         scale = Math.min(canvas.width / (W_belt + 350), canvas.height / (y_tip + 400));
 
         const originX = canvas.width / 2;
@@ -453,7 +497,6 @@
         const Y_prof_top = -d_r/2 - 120; 
         const Y_prof_bot = Y_prof_top - 40; 
         
-        // --- Mittenbügel ---
         const P_anchor_r = { x: P_r_in.x - 10 * dir.x, y: P_r_in.y - 10 * dir.y };
         const P_b_top_R = { x: P_anchor_r.x + 20 * normal.x, y: P_anchor_r.y + 20 * normal.y };
         let t_bot = is_flat ? 0 : (P_b_top_R.y - Y_prof_top) / normal.y;
@@ -466,14 +509,12 @@
         ctx.lineTo(px(P_b_bot_R.x), py(Y_prof_top));
         ctx.lineWidth = lw(t_blech); ctx.lineJoin = 'miter'; ctx.strokeStyle = '#009B4C'; ctx.stroke();
 
-        // --- Seitenbleche & Profilrohr ---
         const P_r_out = { x: P_r_in.x + L_roller * dir.x, y: P_r_in.y + L_roller * dir.y };
         const P_sp_anchor = { x: P_r_out.x + 10 * dir.x, y: P_r_out.y + 10 * dir.y };
         const P_sp_top = { x: P_sp_anchor.x + 20 * normal.x, y: P_sp_anchor.y + 20 * normal.y };
         
         const dist_bend = 20 + d_r/2 + 30;
         const P_bend = is_flat ? { x: P_sp_top.x, y: P_sp_top.y - dist_bend } : { x: P_sp_top.x - dist_bend * normal.x, y: P_sp_top.y - dist_bend * normal.y };
-        
         const profile_end_x = P_bend.x + 5 + 30; 
         
         ctx.fillStyle = '#bdc3c7'; ctx.strokeStyle = '#7f8c8d'; ctx.lineWidth = lw(3);
@@ -490,10 +531,9 @@
             ctx.beginPath();
             ctx.moveTo(px(m * P_sp_top.x), py(P_sp_top.y));
             ctx.lineTo(px(m * P_bend.x), py(P_bend.y));
-            ctx.lineTo(px(m * P_bend.x), py(Y_prof_top)); // Liegt sauber auf Oberkante auf
+            ctx.lineTo(px(m * P_bend.x), py(Y_prof_top)); 
             ctx.lineWidth = lw(t_blech); ctx.lineJoin = 'miter'; ctx.strokeStyle = '#009B4C'; ctx.stroke();
             
-            // Versteifung
             ctx.beginPath();
             ctx.moveTo(px(m * P_bend.x), py(P_bend.y));
             ctx.lineTo(px(m * (P_bend.x - 80)), py(Y_prof_top));
@@ -534,7 +574,7 @@
         drawRollerAndAxle(true);
 
         // ==========================================
-        // 4. GURTBAUWEISE (Unterseite exakt auf Rolle)
+        // 4. GURTBAUWEISE
         // ==========================================
         const P_belt_end = { x: P_belt_tan.x + L_str * dir.x, y: P_belt_tan.y + L_str * dir.y };
         ctx.beginPath();
@@ -615,7 +655,7 @@
         ctx.restore(); 
         
         function drawLabelBox(text, dx, dy, color) {
-            ctx.font = '15px isocpeur, "Segoe Print", Arial, sans-serif';
+            ctx.font = '15px isocpeur, "Segoe UI", Arial, sans-serif';
             let tm = ctx.measureText(text);
             let tw = tm.width;
             let th = 16;
@@ -744,7 +784,6 @@
             dxf += line(-xt_l, yt_l, d.x_mat, d.y_wall_top, "CAD_SCHUETTGUT_KEGEL_RECHTS");
             
             let alpha_deg = d.alpha * 180 / Math.PI;
-            // Native ARC von der linken Flanke über den Zenit (90°) zur rechten Flanke
             dxf += arc(0, tip_c_y, d.r_eff, 90 - alpha_deg, 90 + alpha_deg, "CAD_SCHUETTGUT_RUNDUNG");
             
         } else {
@@ -758,7 +797,7 @@
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `STAG_Querschnitt_B${d.W_belt}_A${UI.troughAngle.value}.dxf`;
+        link.download = `STAG_Querschnitt_Breite${d.W_belt}_Winkel${document.getElementById('troughAngle').value}.dxf`;
         link.click();
         URL.revokeObjectURL(url);
     }
