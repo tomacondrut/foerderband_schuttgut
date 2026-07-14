@@ -68,7 +68,6 @@
         .toggle-container input:checked + .slider-toggle { background-color: var(--primary); }
         .toggle-container input:checked + .slider-toggle::before { transform: translateX(20px); }
         
-        /* Styles für das Custom Conflict Modal */
         .btn-success { background: #27ae60; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; }
         .btn-success:hover { background: #219653; }
         .btn-danger { background: #e74c3c; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; }
@@ -119,7 +118,7 @@
         <div class="control-group">
             <label>Lichter Rollenabstand Mitte (Bügel): <span id="valBracketWidth" class="val-display">80 mm</span></label>
             <input type="range" id="bracketWidth" min="20" max="400" value="80" step="5">
-            <div id="bracketWarning" style="font-size: 0.75em; color: #c0392b; margin-top: 5px; display: none;">Breite wurde geometrisch korrigiert (Rollen überschneiden sich sonst).</div>
+            <div id="bracketWarning" style="font-size: 0.75em; color: #c0392b; margin-top: 5px; display: none;">Breite wurde geometrisch korrigiert.</div>
         </div>
         <div class="control-group">
             <label>Rollen-Durchmesser: <span id="valRollerDia" class="val-display">88.9 mm</span></label>
@@ -133,8 +132,8 @@
         <div class="section-title">Schüttgut & Seitenwände</div>
 
         <div class="control-group full-width" style="border-left: 4px solid #8e44ad;">
-            <label>Lichter Abstand Seitenwände ($b_s$): <span id="valSideWallDist" class="val-display" style="color: #8e44ad;">800 mm</span></label>
-            <input type="range" id="sideWallDist" min="300" max="1400" value="800" step="10">
+            <label>Lichter Abstand Seitenwände ($b_s$): <span id="valSideWallDist" class="val-display" style="color: #8e44ad;">1200 mm</span></label>
+            <input type="range" id="sideWallDist" min="300" max="1400" value="1200" step="10">
         </div>
 
         <div class="control-group full-width" style="border-left: 4px solid var(--primary); background: #eafaf1;">
@@ -185,33 +184,17 @@
 <div id="infoModal" class="modal">
     <div class="modal-content">
         <h3>ℹ️ Geometrische Flächenaufteilung (Exaktes ISO-Integral)</h3>
-        <p>Die Schüttgut-Querschnittsfläche wird zur präzisen Berechnung in symmetrische Zonen unterteilt. Das mathematische Modell nutzt nun die echte Kreisflächen-Integration der Stammfunktion, wodurch numerische Abweichungen ausgeschlossen sind und das Resultat 1:1 mit CAD-Extrusionen übereinstimmt.</p>
-
+        <p>Das mathematische Modell nutzt die echte Kreisflächen-Integration der Stammfunktion. Dadurch stimmt das Resultat 1:1 mit CAD-Extrusionen überein.</p>
         <h4>1. Muldendreieck inkl. Gurt-Kreisbogen ($A_{Mulde}$)</h4>
-        <p>Die Fläche unterhalb des Wandkontakts ($y_{edge}$) abzüglich der Gurtfläche. Die Gurt-Krümmung wird als exaktes Kreissegment abgezogen:</p>
         <div class="formula-box" style="font-size: 0.9em;">
             $$A_{Mulde} = x_{mat} (y_{edge} - y_c) + \frac{1}{2} R_{top}^2 (\sin(\beta)\cos(\beta) + \beta_{rad}) + \frac{1}{2} (x_{mat} - x_{tan}) (y_{edge} - y_{tan})$$
         </div>
-
         <h4>2. Wandquerschnitt ($A_{Wand}$)</h4>
-        <p>Die vertikale Materialsäule entlang der Wand (Entfällt, wenn das Material freiliegend ist).</p>
-        <div class="formula-box">
-            $$A_{Wand} = x_{mat} \cdot h_w$$
-        </div>
-
+        <div class="formula-box">$$A_{Wand} = x_{mat} \cdot h_w$$</div>
         <h4>3. Schüttkegel inkl. Abrundung ($A_{Kegel}$)</h4>
-        <p>Das Dreieck der Materialböschung abzüglich der exakten geometrischen Fläche der Abrundungskuppe ($r$).</p>
         <div class="formula-box" style="font-size: 0.9em;">
             $$A_{Kegel} = \frac{1}{2} x_{mat} (x_{mat} \tan(\alpha)) - \frac{1}{2} r_{eff}^2 (\tan(\alpha) - \alpha_{rad})$$
         </div>
-
-        <h4>Förderleistung (Gesamt)</h4>
-        <div class="formula-box" style="border-left-color: var(--primary);">
-            $$A_{ges} = 2 \cdot (A_{Mulde} + A_{Wand} + A_{Kegel})$$
-            $$Q_v = A_{ges} \cdot v \quad \text{[Volumenstrom]}$$
-            $$Q_m = Q_v \cdot \rho \quad \text{[Massenstrom]}$$
-        </div>
-
         <button id="btnCloseInfo" class="modal-close-btn">Schließen</button>
     </div>
 </div>
@@ -219,8 +202,7 @@
 <div id="conflictModal" class="modal">
     <div class="modal-content" style="width: 500px;">
         <h3 style="color: #c0392b;">⚠️ Geometrie-Konflikt</h3>
-        <p>Die Abrundung der Kegelspitze ist zu groß für den aktuellen Abstand der Seitenwände (die Rundung würde aus den Wänden ragen).</p>
-        <p>Möchtest du die <strong>dynamische Kopplung</strong> aktivieren? Die abhängige Größe weicht dann ab sofort automatisch aus.</p>
+        <p id="conflictMsg"></p>
         <div class="flex-row">
             <button id="btnConflictCancel" class="btn-danger">Abbrechen (Wert zurücksetzen)</button>
             <button id="btnConflictOk" class="btn-success">Kopplung aktivieren</button>
@@ -281,40 +263,85 @@
         document.getElementById('btnExportDXF').addEventListener('click', exportToDXF);
 
         window.addEventListener('resize', updateDisplayAndDraw);
-
         updateDisplayAndDraw();
     };
+
+    // --- GEOMETRISCHER KINEMATIK SOLVER ---
+    function getGeometryLimits() {
+        let beta = parseFloat(UI.troughAngle.value) * Math.PI / 180;
+        let is_flat = (beta < 0.001); if (is_flat) beta = 0.001; 
+        
+        let w_b = parseInt(UI.bracketWidth.value); 
+        const d_r = parseFloat(UI.rollerDia.value);
+        const t_belt = parseInt(UI.beltThick.value);
+        const b_s = parseFloat(UI.sideWallDist.value);
+        let H_ges = parseFloat(UI.materialHeight.value);
+        const alpha = parseFloat(UI.reposeAngle.value) * Math.PI / 180;
+
+        const normal = { x: -Math.sin(beta), y: Math.cos(beta) }; 
+        const P_r_in = { x: w_b/2 - (d_r/2)*normal.x, y: -(d_r/2)*normal.y };
+        const P_belt_tan = { x: P_r_in.x + (d_r/2 + t_belt/2)*normal.x, y: P_r_in.y + (d_r/2 + t_belt/2)*normal.y };
+        
+        const R_cl = P_belt_tan.x / Math.sin(beta);
+        const y_c = P_belt_tan.y + R_cl * Math.cos(beta);
+        let R_top = Math.max(0.1, R_cl - t_belt/2);
+        const belt_top_straight_P = { x: P_r_in.x + (d_r/2 + t_belt)*normal.x, y: P_r_in.y + (d_r/2 + t_belt)*normal.y };
+        const x_tan_belt = R_top * Math.sin(beta);
+
+        function getBeltTopY(x) {
+            if (is_flat) return t_belt;
+            let ax = Math.abs(x);
+            if (ax <= x_tan_belt) return y_c - Math.sqrt(R_top*R_top - ax*ax);
+            return belt_top_straight_P.y + (ax - belt_top_straight_P.x) * Math.tan(beta);
+        }
+        
+        const Y_belt_min = is_flat ? t_belt : y_c - R_top;
+
+        // 1. Wand Limit
+        let r_max_wall = (b_s / 2) / Math.sin(alpha);
+        
+        // 2. Band Limit (Binary Search, exakter Schnittpunkt Tangente/Gurt)
+        let r_low = 0, r_high = 3000;
+        for(let i=0; i<40; i++) {
+            let r_mid = (r_low + r_high) / 2;
+            let xt = r_mid * Math.sin(alpha);
+            let yt = Y_belt_min + H_ges - r_mid * (1 - Math.cos(alpha));
+            if (yt >= getBeltTopY(xt)) r_low = r_mid;
+            else r_high = r_mid;
+        }
+        let r_max_belt = r_low;
+
+        return {
+            r_max: Math.min(r_max_wall, r_max_belt),
+            r_max_wall: r_max_wall,
+            r_max_belt: r_max_belt,
+            get_bs_min: (r) => 2 * r * Math.sin(alpha),
+            get_H_min: (r) => getBeltTopY(r * Math.sin(alpha)) - Y_belt_min + r * (1 - Math.cos(alpha))
+        };
+    }
 
     // --- ZWEI-WEGE-KOPPLUNG ---
     function enforceConstraints(source) {
         if (isPrompting) return; 
-
-        let r_val = parseFloat(UI.tipRadius.value);
-        let bs_val = parseFloat(UI.sideWallDist.value);
-        let H_ges = parseFloat(UI.materialHeight.value);
         let alpha = parseFloat(UI.reposeAngle.value) * Math.PI / 180;
-
         if (alpha < 0.01) return;
 
-        let r_max_wall = (bs_val / 2) / Math.sin(alpha);
-        let r_max_height = H_ges / (1 - Math.cos(alpha)); 
-        let r_max = Math.min(r_max_wall, r_max_height);
+        let lim = getGeometryLimits();
+        let r_val = parseFloat(UI.tipRadius.value);
 
-        let bs_min = 2 * r_val * Math.sin(alpha);
-        let H_min = r_val * (1 - Math.cos(alpha));
-
-        if (r_val > r_max + 1) {
+        // +1 mm Buffer gegen Float-Jitter
+        if (r_val > lim.r_max + 1) {
             if (!isCoupled) {
                 isPrompting = true;
                 
                 let msg = "";
-                if (r_max_height < r_max_wall) {
-                    msg = "Die Abrundung der Kegelspitze ist zu groß für die aktuelle Schütthöhe (die Tangenten der Rundung würden das Band nach unten durchstoßen).";
+                if (lim.r_max_belt < lim.r_max_wall) {
+                    msg = "Die Abrundung der Kegelspitze ist zu groß für die aktuelle Schütthöhe (die Tangenten der Rundung würden das Band durchstoßen).";
                 } else {
                     msg = "Die Abrundung der Kegelspitze ist zu groß für den aktuellen Abstand der Seitenwände (die Rundung würde aus den Wänden ragen).";
                 }
                 
-                document.getElementById('conflictModal').querySelector('p').innerHTML = msg + "<br><br>Möchtest du die <strong>dynamische Kopplung</strong> aktivieren? Die abhängige Größe weicht dann ab sofort automatisch aus.";
+                document.getElementById('conflictMsg').innerHTML = msg + "<br><br>Möchtest du die <strong>dynamische Kopplung</strong> aktivieren? Die abhängige Größe weicht dann ab sofort automatisch aus.";
                 document.getElementById('conflictModal').style.display = 'flex';
                 
                 document.getElementById('btnConflictOk').onclick = function() {
@@ -323,12 +350,10 @@
                     isPrompting = false;
                     
                     if (source === 'radius' || source === 'angle') {
-                        if (r_val > r_max_height) UI.materialHeight.value = Math.ceil(H_min);
-                        if (r_val > r_max_wall) UI.sideWallDist.value = Math.ceil(bs_min);
-                    } else if (source === 'wall') {
-                        UI.tipRadius.value = Math.floor(r_max);
-                    } else if (source === 'height') {
-                        UI.tipRadius.value = Math.floor(r_max);
+                        if (r_val > lim.r_max_belt) UI.materialHeight.value = Math.ceil(lim.get_H_min(r_val));
+                        if (r_val > lim.r_max_wall) UI.sideWallDist.value = Math.ceil(lim.get_bs_min(r_val));
+                    } else if (source === 'wall' || source === 'height') {
+                        UI.tipRadius.value = Math.floor(lim.r_max);
                     }
                     updateDisplayAndDraw();
                 };
@@ -338,11 +363,11 @@
                     isPrompting = false;
                     
                     if (source === 'radius' || source === 'angle') {
-                        UI.tipRadius.value = Math.max(0, Math.floor(r_max) - 10);
+                        UI.tipRadius.value = Math.max(0, Math.floor(lim.r_max) - 5);
                     } else if (source === 'wall') {
-                        UI.sideWallDist.value = Math.ceil(bs_min) + 10;
+                        UI.sideWallDist.value = Math.ceil(lim.get_bs_min(r_val)) + 10;
                     } else if (source === 'height') {
-                        UI.materialHeight.value = Math.ceil(H_min) + 10;
+                        UI.materialHeight.value = Math.ceil(lim.get_H_min(r_val)) + 10;
                     }
                     updateDisplayAndDraw();
                 };
@@ -351,12 +376,10 @@
 
             if (isCoupled) {
                 if (source === 'radius' || source === 'angle') {
-                    if (r_val > r_max_height) UI.materialHeight.value = Math.ceil(H_min);
-                    if (r_val > r_max_wall) UI.sideWallDist.value = Math.ceil(bs_min);
-                } else if (source === 'wall') {
-                    UI.tipRadius.value = Math.floor(r_max);
-                } else if (source === 'height') {
-                    UI.tipRadius.value = Math.floor(r_max);
+                    if (r_val > lim.r_max_belt) UI.materialHeight.value = Math.ceil(lim.get_H_min(r_val));
+                    if (r_val > lim.r_max_wall) UI.sideWallDist.value = Math.ceil(lim.get_bs_min(r_val));
+                } else if (source === 'wall' || source === 'height') {
+                    UI.tipRadius.value = Math.floor(lim.r_max);
                 }
             }
         }
@@ -381,7 +404,6 @@
         const v = parseFloat(UI.speed.value);
         const rho = parseFloat(UI.density.value);
 
-        // --- 1. PARAMETRISCHE KINEMATIK ---
         const dir = { x: Math.cos(beta), y: Math.sin(beta) };
         const normal = { x: -Math.sin(beta), y: Math.cos(beta) }; 
         
@@ -402,8 +424,7 @@
         const R_cl = P_belt_tan.x / Math.sin(beta);
         const y_c = P_belt_tan.y + R_cl * Math.cos(beta);
         
-        let R_top = R_cl - t_belt/2;
-        if (R_top < 0.1) R_top = 0.1;
+        let R_top = Math.max(0.1, R_cl - t_belt/2);
 
         const L_arc = R_cl * (2 * beta);
         const L_str = (W_belt - L_arc) / 2;
@@ -417,21 +438,19 @@
         function getBeltTopY(x) {
             if (is_flat) return t_belt;
             let ax = Math.abs(x);
-            if (ax <= x_tan) {
-                return y_c - Math.sqrt(R_top*R_top - ax*ax);
-            } else {
-                return belt_top_straight_P.y + (ax - belt_top_straight_P.x) * Math.tan(beta);
-            }
+            if (ax <= x_tan) return y_c - Math.sqrt(R_top*R_top - ax*ax);
+            return belt_top_straight_P.y + (ax - belt_top_straight_P.x) * Math.tan(beta);
         }
         
         const Y_belt_min = is_flat ? t_belt : y_c - R_top;
 
-        // --- 2. DYNAMISCHE SCHÜTTGUT-GRENZEN ---
+        // DYNAMISCHE GRENZEN
         const x_sw = b_s / 2;
         const y_tip = Y_belt_min + H_ges; 
         
-        let r_max_geo = Math.min((b_s / 2) / Math.sin(alpha), H_ges / (1 - Math.cos(alpha)));
-        let r_eff = Math.min(tip_r, r_max_geo);
+        // Nutze den Solver für das garantierte Limit
+        let lim = getGeometryLimits();
+        let r_eff = Math.min(tip_r, lim.r_max);
         
         let tip_y_drop = r_eff > 0 ? (r_eff / Math.cos(alpha) - r_eff) : 0;
         let y_th_tip = y_tip + tip_y_drop;
@@ -440,8 +459,7 @@
         for(let i=0; i<40; i++) {
             let mid = (x_low + x_high)/2;
             let y_rep = y_th_tip - mid * Math.tan(alpha);
-            let y_belt = getBeltTopY(mid);
-            if (y_rep > y_belt) x_low = mid; 
+            if (y_rep > getBeltTopY(mid)) x_low = mid; 
             else x_high = mid; 
         }
         let x_int = (x_low + x_high)/2;
@@ -449,11 +467,8 @@
         let is_detached = (x_int < x_sw);
         let x_mat = Math.min(x_sw, x_int);
         
-        if (is_detached) {
-            UI.heightWarning.style.display = 'block';
-        } else {
-            UI.heightWarning.style.display = 'none';
-        }
+        if (is_detached) UI.heightWarning.style.display = 'block';
+        else UI.heightWarning.style.display = 'none';
 
         const y_edge = getBeltTopY(x_mat);
         const y_wall_top = is_detached ? y_edge : y_th_tip - x_mat * Math.tan(alpha);
@@ -461,7 +476,7 @@
 
         DXF_DATA = { W_belt, x_mat, y_edge, y_wall_top, y_tip, y_th_tip, beta, R_top, y_c, alpha, is_detached, t_belt, is_flat, Y_belt_min, L_str, r_eff, P_r_in, dir, normal, d_r, x_tan, y_tan };
 
-        // --- 3. EXAKTE INTEGRAL FLÄCHENBERECHNUNG ---
+        // --- EXAKTE ISO-FLÄCHENBERECHNUNG ---
         let A_mulde = 0;
         if (is_flat) {
             A_mulde = x_mat * (y_edge - Y_belt_min);
@@ -485,7 +500,6 @@
         
         const A_ges_m2 = 2 * (A_mulde + A_rect + A_kegel) / 1000000;
 
-        // --- 4. UI SEITE UPDATEN ---
         document.getElementById('valTroughAngle').innerText = UI.troughAngle.value + '°';
         document.getElementById('valBracketWidth').innerText = UI.bracketWidth.value + ' mm';
         document.getElementById('valRollerDia').innerText = parseFloat(UI.rollerDia.value).toFixed(1) + ' mm';
@@ -506,7 +520,6 @@
         document.getElementById('resMass').innerText = Q_m.toFixed(1) + ' kg/s';
         document.getElementById('resMassHour').innerText = (Q_v * 3600 * rho).toFixed(1) + ' t/h';
 
-        // --- 5. RENDER ENGINE ---
         renderCanvas(
             W_belt, beta, w_b, d_r, t_belt, b_s, L_str, L_roller,
             y_c, R_cl, R_top, Y_belt_min, is_flat,
@@ -546,7 +559,7 @@
         ctx.beginPath(); ctx.moveTo(px(0), py(-200)); ctx.lineTo(px(0), py(y_tip + 150)); ctx.stroke(); ctx.setLineDash([]);
 
         // ==========================================
-        // 2. TRAGSTRUKTUR (Aufliegend auf OBERKANTE Profil)
+        // 2. TRAGSTRUKTUR
         // ==========================================
         const t_blech = 10;
         const Y_prof_top = -d_r/2 - 120; 
@@ -770,7 +783,7 @@
     }
 
     // ==========================================
-    // 8. DXF-EXPORT-SCHNITTSTELLE FÜR CAD
+    // 8. EXAKTER DXF-EXPORT
     // ==========================================
     function exportToDXF() {
         let dxf = "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n";
