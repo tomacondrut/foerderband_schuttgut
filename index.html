@@ -262,13 +262,14 @@
             updateDisplayAndDraw();
         });
 
-        // Event-Listener mit eingebautem Geometrie-Wächter (Coupling)
+// Event-Listener mit erweitertem Geometrie-Wächter (Coupling)
         Object.keys(UI).forEach(key => {
             if(UI[key] && (UI[key].tagName === 'INPUT' || UI[key].tagName === 'SELECT')) {
                 UI[key].addEventListener('input', (e) => {
                     if (key === 'tipRadius') enforceConstraints('radius');
                     if (key === 'sideWallDist') enforceConstraints('wall');
                     if (key === 'reposeAngle') enforceConstraints('angle');
+                    if (key === 'materialHeight') enforceConstraints('height');
                     updateDisplayAndDraw();
                 });
             }
@@ -283,68 +284,86 @@
         updateDisplayAndDraw();
     };
 
-    let isCoupled = false;
-    let isPrompting = false; // Verhindert, dass der Slider hunderte Popups wirft
 
-    // --- ZWEI-WEGE-KOPPLUNG (Verhindert das "Rauspieksen" der Kuppe) ---
-      function enforceConstraints(source) {
-        if (isPrompting) return; // Wenn Popup offen, ignoriere weiteres Ziehen am Slider
+    let isCoupled = false;
+    let isPrompting = false; 
+
+    // --- ZWEI-WEGE-KOPPLUNG (Überwacht Wand-Kollision & Band-Durchstoßung) ---
+    function enforceConstraints(source) {
+        if (isPrompting) return; 
 
         let r_val = parseFloat(UI.tipRadius.value);
         let bs_val = parseFloat(UI.sideWallDist.value);
+        let H_ges = parseFloat(UI.materialHeight.value);
         let alpha = parseFloat(UI.reposeAngle.value) * Math.PI / 180;
 
         if (alpha < 0.01) return;
 
-        // Mathematisches Limit
-        let r_max = (bs_val / 2) / Math.sin(alpha);
+        // Mathematische Limits berechnen
+        let r_max_wall = (bs_val / 2) / Math.sin(alpha);
+        let r_max_height = H_ges / 2; // Unterkante des Kreises darf nicht unter Gurtboden sinken
+        let r_max = Math.min(r_max_wall, r_max_height);
+
         let bs_min = 2 * r_val * Math.sin(alpha);
+        let H_min = 2 * r_val;
 
         if (r_val > r_max) {
             if (!isCoupled) {
                 isPrompting = true;
                 
-                // Schickes In-Window Modal anzeigen
+                // Text dynamisch je nach geometrischer Ursache anpassen
+                let msg = "";
+                if (r_max_height < r_max_wall) {
+                    msg = "Die Abrundung der Kegelspitze ist zu groß für die aktuelle Schütthöhe (die Rundung würde das Band nach unten durchstoßen).";
+                } else {
+                    msg = "Die Abrundung der Kegelspitze ist zu groß für den aktuellen Abstand der Seitenwände (die Rundung würde aus den Wänden ragen).";
+                }
+                
+                document.getElementById('conflictModal').querySelector('p').innerHTML = msg + "<br><br>Möchtest du die <strong>dynamische Kopplung</strong> aktivieren? Die abhängige Größe weicht dann ab sofort automatisch aus.";
                 document.getElementById('conflictModal').style.display = 'flex';
                 
-                // Event-Listener für den OK-Knopf (Koppeln)
+                // OK-Klick: Kopplung aktivieren und Werte anpassen
                 document.getElementById('btnConflictOk').onclick = function() {
                     isCoupled = true;
                     document.getElementById('conflictModal').style.display = 'none';
                     isPrompting = false;
                     
-                    // Kopplung sofort anwenden
                     if (source === 'radius' || source === 'angle') {
-                        UI.sideWallDist.value = Math.ceil(bs_min);
+                        if (r_val > r_max_height) UI.materialHeight.value = Math.ceil(H_min);
+                        if (r_val > r_max_wall) UI.sideWallDist.value = Math.ceil(bs_min);
                     } else if (source === 'wall') {
+                        UI.tipRadius.value = Math.floor(r_max);
+                    } else if (source === 'height') {
                         UI.tipRadius.value = Math.floor(r_max);
                     }
                     updateDisplayAndDraw();
                 };
                 
-                // Event-Listener für den Abbrechen-Knopf (Zurücksetzen mit 10mm Puffer)
+                // Abbrechen-Klick: Aktion verwerfen mit sicherem 10 mm Abstand zur kritischen Kante
                 document.getElementById('btnConflictCancel').onclick = function() {
                     document.getElementById('conflictModal').style.display = 'none';
                     isPrompting = false;
                     
-                    // Revertieren der Aktion (-10mm bzw. +10mm als Sicherheitspuffer)
                     if (source === 'radius' || source === 'angle') {
-                        let safe_r = Math.max(0, Math.floor(r_max) - 10);
-                        UI.tipRadius.value = safe_r;
+                        UI.tipRadius.value = Math.max(0, Math.floor(r_max) - 10);
                     } else if (source === 'wall') {
-                        let safe_bs = Math.ceil(bs_min) + 10;
-                        UI.sideWallDist.value = safe_bs;
+                        UI.sideWallDist.value = Math.ceil(bs_min) + 10;
+                    } else if (source === 'height') {
+                        UI.materialHeight.value = Math.ceil(H_min) + 10;
                     }
                     updateDisplayAndDraw();
                 };
                 return;
             }
 
-            // Wenn die Kopplung aktiv ist: Werte lautlos mitschieben
+            // Wenn gekoppelt: Werte lautlos mitschieben (wie im CAD)
             if (isCoupled) {
                 if (source === 'radius' || source === 'angle') {
-                    UI.sideWallDist.value = Math.ceil(bs_min);
+                    if (r_val > r_max_height) UI.materialHeight.value = Math.ceil(H_min);
+                    if (r_val > r_max_wall) UI.sideWallDist.value = Math.ceil(bs_min);
                 } else if (source === 'wall') {
+                    UI.tipRadius.value = Math.floor(r_max);
+                } else if (source === 'height') {
                     UI.tipRadius.value = Math.floor(r_max);
                 }
             }
