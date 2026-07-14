@@ -448,7 +448,6 @@
         const x_sw = b_s / 2;
         const y_tip = Y_belt_min + H_ges; 
         
-        // Nutze den Solver für das garantierte Limit
         let lim = getGeometryLimits();
         let r_eff = Math.min(tip_r, lim.r_max);
         
@@ -474,7 +473,7 @@
         const y_wall_top = is_detached ? y_edge : y_th_tip - x_mat * Math.tan(alpha);
         const h_w_rect = Math.max(0, y_wall_top - y_edge);
 
-        DXF_DATA = { W_belt, x_mat, y_edge, y_wall_top, y_tip, y_th_tip, beta, R_top, y_c, alpha, is_detached, t_belt, is_flat, Y_belt_min, L_str, r_eff, P_r_in, dir, normal, d_r, x_tan, y_tan };
+        DXF_DATA = { W_belt, b_s, x_mat, y_edge, y_wall_top, y_tip, y_th_tip, beta, R_top, y_c, alpha, is_detached, t_belt, is_flat, Y_belt_min, L_str, r_eff, P_r_in, dir, normal, d_r, x_tan, y_tan };
 
         // --- EXAKTE ISO-FLÄCHENBERECHNUNG ---
         let A_mulde = 0;
@@ -541,7 +540,8 @@
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.save();
         
-        scale = Math.min(canvas.width / (W_belt + 350), canvas.height / (y_tip + 400));
+        let max_y_draw = Math.max(y_tip + 300, W_belt * Math.sin(beta) + 300);
+        scale = Math.min(canvas.width / (W_belt + 350), canvas.height / max_y_draw);
 
         const originX = canvas.width / 2;
         const originY = canvas.height - 180 * (canvas.height/650);
@@ -702,7 +702,7 @@
         ctx.strokeStyle = '#27ae60'; ctx.stroke();
 
         // ==========================================
-        // 6. SEITENWÄNDE
+        // 6. SEITENWÄNDE (Verhindert das Durchstoßen nach unten)
         // ==========================================
         const x_sw = b_s / 2;
         let ax_sw = Math.abs(x_sw);
@@ -712,9 +712,13 @@
             y_belt_sw = T_top.y + (ax_sw - T_top.x) * Math.tan(beta);
         }
 
+        // Dynamisches Limit: Mindestens 100 mm über der Unterkante und über y_tip/y_wall_top
+        let y_skirt_bot = y_belt_sw + 5;
+        let y_skirt_top = Math.max(y_tip + 80, y_skirt_bot + 100);
+
         ctx.beginPath();
-        ctx.moveTo(px(-x_sw), py(y_tip + 80)); ctx.lineTo(px(-x_sw), py(y_belt_sw + 5)); 
-        ctx.moveTo(px(x_sw), py(y_tip + 80)); ctx.lineTo(px(x_sw), py(y_belt_sw + 5));
+        ctx.moveTo(px(-x_sw), py(y_skirt_top)); ctx.lineTo(px(-x_sw), py(y_skirt_bot)); 
+        ctx.moveTo(px(x_sw), py(y_skirt_top)); ctx.lineTo(px(x_sw), py(y_skirt_bot));
         ctx.lineWidth = lw(8); ctx.strokeStyle = '#8e44ad'; ctx.stroke();
 
         // ==========================================
@@ -783,7 +787,7 @@
     }
 
     // ==========================================
-    // 8. EXAKTER DXF-EXPORT
+    // 8. DXF-EXPORT
     // ==========================================
     function exportToDXF() {
         let dxf = "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n";
@@ -857,6 +861,12 @@
             dxf += line(-d.x_mat, d.y_wall_top, 0, d.y_tip, "CAD_SCHUETTGUT_KEGEL_LINKS");
             dxf += line(0, d.y_tip, d.x_mat, d.y_wall_top, "CAD_SCHUETTGUT_KEGEL_RECHTS");
         }
+        
+        // 4. Seitenschürzen in DXF Exportieren
+        let y_skirt_bot_dxf = getBeltTopY_local(d.b_s / 2) + 5;
+        let y_skirt_top_dxf = Math.max(d.y_tip + 80, y_skirt_bot_dxf + 100);
+        dxf += line(-d.b_s/2, y_skirt_bot_dxf, -d.b_s/2, y_skirt_top_dxf, "CAD_SEITENSCHUERZE_LINKS");
+        dxf += line(d.b_s/2, y_skirt_bot_dxf, d.b_s/2, y_skirt_top_dxf, "CAD_SEITENSCHUERZE_RECHTS");
 
         dxf += "0\nENDSEC\n0\nEOF\n";
 
