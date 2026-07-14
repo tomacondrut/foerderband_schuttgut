@@ -67,6 +67,12 @@
         .slider-toggle::before { content: ""; position: absolute; width: 16px; height: 16px; border-radius: 50%; background: white; top: 2px; left: 2px; transition: 0.3s; }
         .toggle-container input:checked + .slider-toggle { background-color: var(--primary); }
         .toggle-container input:checked + .slider-toggle::before { transform: translateX(20px); }
+        /* Styles für das Custom Conflict Modal */
+        .btn-success { background: #27ae60; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .btn-success:hover { background: #219653; }
+        .btn-danger { background: #e74c3c; color: white; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .btn-danger:hover { background: #c0392b; }
+        .flex-row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
     </style>
 </head>
 <body>
@@ -209,10 +215,21 @@
     </div>
 </div>
 
+    <div id="conflictModal" class="modal">
+    <div class="modal-content" style="width: 500px;">
+        <h3 style="color: #c0392b;">⚠️ Geometrie-Konflikt</h3>
+        <p>Die Abrundung der Kegelspitze ist zu groß für den aktuellen Abstand der Seitenwände (die Rundung würde aus den Wänden ragen).</p>
+        <p>Möchtest du die <strong>dynamische Kopplung</strong> aktivieren? Die abhängige Größe weicht dann ab sofort automatisch aus.</p>
+        <div class="flex-row">
+            <button id="btnConflictCancel" class="btn-danger">Abbrechen (Wert zurücksetzen)</button>
+            <button id="btnConflictOk" class="btn-success">Kopplung aktivieren</button>
+        </div>
+    </div>
+</div>
+
 <script>
     // Globale Geometriedaten für DXF Export
     let DXF_DATA = {};
-    let isCoupled = false; // State-Variable für die Zwei-Wege-Kopplung
 
     const UI = {
         beltWidth: document.getElementById('beltWidth'),
@@ -266,36 +283,64 @@
         updateDisplayAndDraw();
     };
 
+    let isCoupled = false;
+    let isPrompting = false; // Verhindert, dass der Slider hunderte Popups wirft
+
     // --- ZWEI-WEGE-KOPPLUNG (Verhindert das "Rauspieksen" der Kuppe) ---
-    function enforceConstraints(source) {
+      function enforceConstraints(source) {
+        if (isPrompting) return; // Wenn Popup offen, ignoriere weiteres Ziehen am Slider
+
         let r_val = parseFloat(UI.tipRadius.value);
         let bs_val = parseFloat(UI.sideWallDist.value);
         let alpha = parseFloat(UI.reposeAngle.value) * Math.PI / 180;
 
         if (alpha < 0.01) return;
 
-        // Mathematisches Limit: Der Radius darf maximal so groß sein, dass der Tangentenpunkt 
-        // exakt an der Seitenwand liegt (r * sin(alpha) <= b_s / 2).
+        // Mathematisches Limit
         let r_max = (bs_val / 2) / Math.sin(alpha);
         let bs_min = 2 * r_val * Math.sin(alpha);
 
-        // Toleranz +1mm gegen Float-Jitter
-        if (r_val > r_max + 1) {
+        if (r_val > r_max) {
             if (!isCoupled) {
-                // Popup werfen und den Drag stoppen
-                let userAgrees = confirm("Geometrie-Konflikt: Die Abrundung der Kegelspitze ist zu groß für den aktuellen Abstand der Seitenwände (die Rundung würde aus den Wänden ragen).\n\nMöchtest du die dynamische Kopplung aktivieren? Die abhängige Größe wird dann automatisch mitverschoben.");
+                isPrompting = true;
                 
-                if (userAgrees) {
+                // Schickes In-Window Modal anzeigen
+                document.getElementById('conflictModal').style.display = 'flex';
+                
+                // Event-Listener für den OK-Knopf (Koppeln)
+                document.getElementById('btnConflictOk').onclick = function() {
                     isCoupled = true;
-                } else {
-                    // Revertieren der verursachenden Aktion
-                    if (source === 'radius' || source === 'angle') UI.tipRadius.value = Math.floor(r_max);
-                    if (source === 'wall') UI.sideWallDist.value = Math.ceil(bs_min);
-                    return;
-                }
+                    document.getElementById('conflictModal').style.display = 'none';
+                    isPrompting = false;
+                    
+                    // Kopplung sofort anwenden
+                    if (source === 'radius' || source === 'angle') {
+                        UI.sideWallDist.value = Math.ceil(bs_min);
+                    } else if (source === 'wall') {
+                        UI.tipRadius.value = Math.floor(r_max);
+                    }
+                    updateDisplayAndDraw();
+                };
+                
+                // Event-Listener für den Abbrechen-Knopf (Zurücksetzen mit 10mm Puffer)
+                document.getElementById('btnConflictCancel').onclick = function() {
+                    document.getElementById('conflictModal').style.display = 'none';
+                    isPrompting = false;
+                    
+                    // Revertieren der Aktion (-10mm bzw. +10mm als Sicherheitspuffer)
+                    if (source === 'radius' || source === 'angle') {
+                        let safe_r = Math.max(0, Math.floor(r_max) - 10);
+                        UI.tipRadius.value = safe_r;
+                    } else if (source === 'wall') {
+                        let safe_bs = Math.ceil(bs_min) + 10;
+                        UI.sideWallDist.value = safe_bs;
+                    }
+                    updateDisplayAndDraw();
+                };
+                return;
             }
 
-            // Wenn freigeschalten: Slider gegenseitig ziehen
+            // Wenn die Kopplung aktiv ist: Werte lautlos mitschieben
             if (isCoupled) {
                 if (source === 'radius' || source === 'angle') {
                     UI.sideWallDist.value = Math.ceil(bs_min);
